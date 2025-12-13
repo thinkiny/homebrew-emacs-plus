@@ -20,14 +20,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-13]
+        os: [macos-latest]
 
     steps:
       - name: Tap emacs-plus
         run: brew tap d12frosted/emacs-plus
 
       - name: Build emacs-plus
-        run: brew install emacs-plus
+        run: |
+          export HOMEBREW_DEVELOPER=1
+          brew install emacs-plus
 
       - name: Test installation
         run: $(brew --prefix)/bin/emacs --batch --eval='(print (+ 2 2))'
@@ -36,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-13]
+        os: [macos-latest]
 
     steps:
       - name: Build emacs-plus

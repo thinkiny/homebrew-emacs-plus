@@ -2,8 +2,8 @@ require_relative "../Library/EmacsBase"
 
 class EmacsPlusAT28 < EmacsBase
   init 28
-  url "https://ftp.gnu.org/gnu/emacs/emacs-28.2.tar.xz"
-  mirror "https://ftpmirror.gnu.org/emacs/emacs-28.2.tar.xz"
+  url "https://ftpmirror.gnu.org/emacs/emacs-28.2.tar.xz"
+  mirror "https://ftp.gnu.org/gnu/emacs/emacs-28.2.tar.xz"
   sha256 "ee21182233ef3232dc97b486af2d86e14042dbb65bbc535df562c3a858232488"
 
   desc "GNU Emacs text editor"
@@ -260,7 +260,11 @@ class EmacsPlusAT28 < EmacsBase
       To link the application to default Homebrew App location:
         osascript -e 'tell application "Finder" to make alias file to posix file "#{prefix}/Emacs.app" at posix file "/Applications" with properties {name:"Emacs.app"}'
 
-      Your PATH value was injected into Emacs.app/Contents/Info.plist
+      Your PATH value was injected into Emacs.app via a wrapper script.
+      This solves the issue with macOS Sequoia ignoring LSEnvironment in Info.plist.
+
+      To disable PATH injection, set EMACS_PLUS_NO_PATH_INJECTION before running Emacs:
+        export EMACS_PLUS_NO_PATH_INJECTION=1
 
       Report any issues to https://github.com/d12frosted/homebrew-emacs-plus
     EOS
