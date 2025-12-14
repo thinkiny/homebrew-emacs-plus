@@ -8,7 +8,26 @@
 
 - alpha-background support, from [[https://github.com/bbenchen/homebrew-emacs-plus][bbenchen/homebrew-emacs-plus]]
 - translucent (blurred) frame background
+- Liquid Glass background, in emacs-plus@31. Who needs legibility anyway?
+- a nicer child frame with rounded corners and shadow
 - preserving traffic light while hide title bar (=--with-no-titlebar=)
 - a new Emacs icon (=--with-unknown-big-sur-circle-icon=) that I randomly found years ago from unknown source (likely on [[https://macosicons.com/][macOSicons]]), shown on the right. Please reach out if you know who made this icon.
 
 Please refer to upstream repo for more information.
+
+** Screen Shots
+
+Empty emacs window with extreme transparency
+#+begin_html
+<img align="left" width="100%" src="images/liquid-glass-empty.png" alt="">
+#+end_html
+
+Liquid Glass behind code
+#+begin_html
+<img align="left" width="100%" src="images/liquid-glass-code.png" alt="">
+#+end_html
+
+Nicer child frame floating on top of parent frame
+#+begin_html
+<img align="left" width="100%" src="images/liquid-glass-child-frame.png" alt="">
+#+end_html
