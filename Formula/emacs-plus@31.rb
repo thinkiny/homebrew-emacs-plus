@@ -92,6 +92,9 @@ class EmacsPlusAT31 < EmacsBase
   opoo "The option --with-no-frame-refocus is not required anymore in emacs-plus@31." if build.with? "no-frame-refocus"
   local_patch "system-appearance", sha: "53283503db5ed2887e9d733baaaf80f2c810e668e782e988bda5855a0b1ebeb4"
   local_patch "round-undecorated-frame", sha: "26947b6724fc29fadd44889808c5cf0b4ce6278cf04f46086a21df50c8c4151d"
+  local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
+  local_patch "glass", sha: "6430ecd6cc9b11b208f2eb89d76791c84a5026c7966b208638de81b6e08b9a91"
+  local_patch "nice-child-frame", sha: "43a45cf3d7ad7d15b90a58bd1d232f43fdbce91ebbcecfdd4ad1883ca92bbf76"
 
   #
   # Install
