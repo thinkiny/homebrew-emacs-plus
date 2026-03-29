@@ -95,6 +95,8 @@ class EmacsPlusAT31 < EmacsBase
   local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
   local_patch "glass", sha: "6430ecd6cc9b11b208f2eb89d76791c84a5026c7966b208638de81b6e08b9a91"
   local_patch "nice-child-frame", sha: "43a45cf3d7ad7d15b90a58bd1d232f43fdbce91ebbcecfdd4ad1883ca92bbf76"
+  local_patch "ns-mac-input-source", sha: "99fefba9eb0725743a901cd95e0deb575193e1d258094cb56ccbac37ada0ffa2"
+  local_patch "xwidget-transparency", sha: "5062c465e75d5384af7b59a952f2e7df59ba19d60d88e5254dbf40f49eba08f9"
 
   #
   # Install

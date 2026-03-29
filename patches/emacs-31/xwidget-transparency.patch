@@ -1,0 +1,347 @@
+diff --git a/src/nsterm.h b/src/nsterm.h
+index 60a0ef0..18d9955 100644
+--- a/src/nsterm.h
++++ b/src/nsterm.h
+@@ -1259,6 +1259,11 @@ extern void ns_init_events (struct input_event *);
+ extern void ns_finish_events (void);
+ 
+ extern double ns_frame_scale_factor (struct frame *);
++struct xwidget_view;
++extern void ns_clear_xwidget_underlay (struct xwidget_view *xv,
++                                       int x, int y, int width, int height,
++                                       const char *reason,
++                                       bool wake_app_loop);
+ 
+ extern frame_parm_handler ns_frame_parm_handlers[];
+ 
+diff --git a/src/nsterm.m b/src/nsterm.m
+index 50a7011..4449518 100644
+--- a/src/nsterm.m
++++ b/src/nsterm.m
+@@ -4975,6 +4975,52 @@ Function modeled after x_draw_glyph_string_box ().
+     }
+ }
+ 
++void
++ns_clear_xwidget_underlay (struct xwidget_view *xv,
++                           int x, int y, int width, int height,
++                           const char *reason,
++                           bool wake_app_loop)
++{
++  (void) reason;
++
++  if (xv == NULL || EQ (xv->w, Qnil) || !WINDOWP (xv->w))
++    return;
++
++  if (width <= 0 || height <= 0)
++    return;
++
++  struct window *w = XWINDOW (xv->w);
++  struct frame *f = w ? WINDOW_XFRAME (w) : NULL;
++  NSView *view = nil;
++  NSRect rect = NSMakeRect (x, y, width, height);
++  struct face *face = NULL;
++
++  if (f == NULL || !FRAME_LIVE_P (f))
++    return;
++
++  view = FRAME_NS_VIEW (f);
++  face = FRAME_DEFAULT_FACE (f);
++  if (view == nil || face == NULL)
++    return;
++
++  rect = NSIntersectionRect (rect, [view frame]);
++  if (NSIsEmptyRect (rect))
++    return;
++
++  ns_focus (f, &rect, 1);
++  [[[NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND (face)]
++    colorWithAlphaComponent:f->alpha_background] set];
++  /* Replace stale backing pixels rather than blending over them.  */
++  NSRectFillUsingOperation (rect, NSCompositingOperationCopy);
++  ns_unfocus (f);
++
++  [view setNeedsDisplayInRect:rect];
++  if ([view window])
++    [[view window] setViewsNeedDisplay:YES];
++  if (wake_app_loop)
++    ns_send_appdefined (-1);
++}
++
+ #if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 1070
+ static void
+ check_native_fs (void)
+diff --git a/src/nsxwidget.m b/src/nsxwidget.m
+index dd9ec28..2292440 100644
+--- a/src/nsxwidget.m
++++ b/src/nsxwidget.m
+@@ -29,6 +29,12 @@
+ 
+ #import <AppKit/AppKit.h>
+ #import <WebKit/WebKit.h>
++#import <objc/message.h>
++
++static void nsxwidget_apply_view_clear_background (NSView *view);
++static void nsxwidget_apply_webview_transparency (WKWebView *webview);
++static void nsxwidget_refresh_transparency_for_view (struct xwidget_view *xv);
++static void nsxwidget_invalidate_host_for_view (struct xwidget_view *xv);
+ 
+ /* Thoughts on NS Cocoa xwidget and webkit2:
+ 
+@@ -77,10 +83,29 @@ - (id) initWithFrame:(CGRect)frame
+   if (!EQ (Fsymbol_value (enablePlugins), Qnil))
+     configuration.preferences.plugInsEnabled = YES;
+ #endif
++  SEL cfg_set_draws_background = NSSelectorFromString (@"_setDrawsBackground:");
++  if ([configuration respondsToSelector:cfg_set_draws_background])
++    ((void (*)(id, SEL, BOOL)) objc_msgSend) (configuration,
++                                               cfg_set_draws_background,
++                                               NO);
+ 
+   self = [super initWithFrame:frame configuration:configuration];
+   if (self)
+     {
++      SEL webview_set_draws_background =
++        NSSelectorFromString (@"_setDrawsBackground:");
++      if ([self respondsToSelector:webview_set_draws_background])
++        ((void (*)(id, SEL, BOOL)) objc_msgSend) (self,
++                                                  webview_set_draws_background,
++                                                  NO);
++      @try
++        {
++          [self setValue:@NO forKey:@"drawsBackground"];
++        }
++      @catch (NSException *ignored)
++        {
++        }
++
+       self.xw = xw;
+       self.urlScriptBlocked = [[[NSMutableDictionary alloc] init]
+                                 autorelease];
+@@ -106,6 +131,11 @@ - (id) initWithFrame:(CGRect)frame
+ - (void) webView:(WKWebView *)webView
+ didFinishNavigation:(WKNavigation *)navigation
+ {
++  if (self.xw && self.xw->xv)
++    {
++      nsxwidget_refresh_transparency_for_view (self.xw->xv);
++    }
++
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-finished");
+ }
+@@ -482,6 +512,13 @@ - (void) userContentController:(WKUserContentController *)userContentController
+ 
+ @implementation XwWindow
+ - (BOOL) isFlipped { return YES; }
++- (BOOL) isOpaque { return NO; }
++- (void) drawRect:(NSRect)dirty_rect
++{
++  [[NSColor clearColor] set];
++  NSRectFillUsingOperation (dirty_rect, NSCompositingOperationCopy);
++  [super drawRect:dirty_rect];
++}
+ @end
+ 
+ /* Xwidget model, macOS Cocoa part.  */
+@@ -552,6 +589,13 @@ - (BOOL) isFlipped { return YES; }
+ 
+ @implementation XvWindow : NSView
+ - (BOOL) isFlipped { return YES; }
++- (BOOL) isOpaque { return NO; }
++- (void) drawRect:(NSRect)dirty_rect
++{
++  [[NSColor clearColor] set];
++  NSRectFillUsingOperation (dirty_rect, NSCompositingOperationCopy);
++  [super drawRect:dirty_rect];
++}
+ @end
+ 
+ void
+@@ -569,6 +613,7 @@ - (BOOL) isFlipped { return YES; }
+   xv->clip_right = xw->width;
+   xv->clip_top = 0;
+   xv->clip_bottom = xw->height;
++  xv->hidden = YES;
+ 
+   xv->xvWindow = [[XvWindow alloc]
+                    initWithFrame:NSMakeRect (x, y, xw->width, xw->height)];
+@@ -580,6 +625,7 @@ - (BOOL) isFlipped { return YES; }
+ 
+   xv->emacswindow = FRAME_NS_VIEW (s->f);
+   [xv->emacswindow addSubview:xv->xvWindow];
++  nsxwidget_refresh_transparency_for_view (xv);
+ }
+ 
+ void
+@@ -598,15 +644,27 @@ - (BOOL) isFlipped { return YES; }
+ void
+ nsxwidget_show_view (struct xwidget_view *xv)
+ {
++  BOOL was_hidden = xv->hidden;
++  int clip_width = xv->clip_right - xv->clip_left;
++  int clip_height = xv->clip_bottom - xv->clip_top;
+   xv->hidden = NO;
++  [xv->xvWindow setHidden:NO];
+   [xv->xvWindow setFrameOrigin:NSMakePoint(xv->x + xv->clip_left,
+                                            xv->y + xv->clip_top)];
++  ns_clear_xwidget_underlay (xv,
++                             xv->x + xv->clip_left,
++                             xv->y + xv->clip_top,
++                             clip_width, clip_height,
++                             "show_view",
++                             was_hidden);
++  nsxwidget_refresh_transparency_for_view (xv);
+ }
+ 
+ void
+ nsxwidget_hide_view (struct xwidget_view *xv)
+ {
+   xv->hidden = YES;
++  [xv->xvWindow setHidden:YES];
+   [xv->xvWindow setFrameOrigin:NSMakePoint(10000, 10000)];
+ }
+ 
+@@ -634,4 +692,118 @@ - (BOOL) isFlipped { return YES; }
+ nsxwidget_set_needsdisplay (struct xwidget_view *xv)
+ {
+   xv->xvWindow.needsDisplay = YES;
++  if (!EQ (xv->model, Qnil))
++    {
++      struct xwidget *xw = XXWIDGET (xv->model);
++      if (xw && xw->xwWindow)
++        xw->xwWindow.needsDisplay = YES;
++      if (xw && xw->xwWidget)
++        ((NSView *) xw->xwWidget).needsDisplay = YES;
++    }
++}
++
++static void
++nsxwidget_apply_view_clear_background (NSView *view)
++{
++  if (view == nil)
++    return;
++
++  SEL set_opaque = NSSelectorFromString (@"setOpaque:");
++  SEL set_background_color = NSSelectorFromString (@"setBackgroundColor:");
++
++  if ([view respondsToSelector:set_opaque])
++    ((void (*)(id, SEL, BOOL)) objc_msgSend) (view, set_opaque, NO);
++
++  if ([view respondsToSelector:set_background_color])
++    ((void (*)(id, SEL, id)) objc_msgSend) (view, set_background_color,
++                                            [NSColor clearColor]);
++
++  [view setWantsLayer:YES];
++  if ([view layer] != nil)
++    {
++      [[view layer] setOpaque:NO];
++      [[view layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
++    }
++}
++
++static void
++nsxwidget_apply_webview_transparency (WKWebView *webview)
++{
++  if (webview == nil)
++    return;
++
++  SEL set_draws_background = NSSelectorFromString (@"setDrawsBackground:");
++  SEL set_draws_background_priv = NSSelectorFromString (@"_setDrawsBackground:");
++  SEL set_under_page_background_color =
++    NSSelectorFromString (@"setUnderPageBackgroundColor:");
++  SEL scroll_view_sel = NSSelectorFromString (@"scrollView");
++  NSScrollView *scroll_view = nil;
++
++  nsxwidget_apply_view_clear_background ((NSView *) webview);
++
++  if ([webview respondsToSelector:set_draws_background])
++    ((void (*)(id, SEL, BOOL)) objc_msgSend) (webview, set_draws_background,
++                                              NO);
++  if ([webview respondsToSelector:set_draws_background_priv])
++    ((void (*)(id, SEL, BOOL)) objc_msgSend) (webview,
++                                              set_draws_background_priv,
++                                              NO);
++  if ([webview respondsToSelector:set_under_page_background_color])
++    ((void (*)(id, SEL, id)) objc_msgSend) (webview,
++                                            set_under_page_background_color,
++                                            [NSColor clearColor]);
++
++  @try
++    {
++      [webview setValue:@NO forKey:@"drawsBackground"];
++      [webview setValue:[NSColor clearColor] forKey:@"underPageBackgroundColor"];
++    }
++  @catch (NSException *ignored)
++    {
++    }
++
++  if ([webview respondsToSelector:scroll_view_sel])
++    scroll_view = ((id (*)(id, SEL)) objc_msgSend) (webview, scroll_view_sel);
++
++  nsxwidget_apply_view_clear_background ((NSView *) scroll_view);
++  nsxwidget_apply_view_clear_background ([scroll_view contentView]);
++  nsxwidget_apply_view_clear_background ([[scroll_view contentView] documentView]);
++}
++
++static void
++nsxwidget_refresh_transparency_for_view (struct xwidget_view *xv)
++{
++  if (xv == NULL || EQ (xv->model, Qnil))
++    return;
++
++  struct xwidget *xw = XXWIDGET (xv->model);
++  if (xw == NULL || xw->xwWidget == nil)
++    return;
++
++  nsxwidget_apply_webview_transparency ((WKWebView *) xw->xwWidget);
++
++  xv->xvWindow.needsDisplay = YES;
++  xw->xwWindow.needsDisplay = YES;
++  ((NSView *) xw->xwWidget).needsDisplay = YES;
++
++  nsxwidget_invalidate_host_for_view (xv);
++}
++
++static void
++nsxwidget_invalidate_host_for_view (struct xwidget_view *xv)
++{
++  if (xv->emacswindow)
++    {
++      NSWindow *window = [xv->emacswindow window];
++      NSView *content = window ? [window contentView] : nil;
++      [xv->emacswindow setNeedsDisplay:YES];
++      [xv->emacswindow setNeedsDisplayInRect:[xv->xvWindow frame]];
++      if (window)
++        [window setViewsNeedDisplay:YES];
++      if (content)
++        {
++          [content setNeedsDisplay:YES];
++          [content setNeedsDisplayInRect:[xv->xvWindow frame]];
++        }
++    }
+ }
+diff --git a/src/xwidget.c b/src/xwidget.c
+index 0efb346..eb6402d 100644
+--- a/src/xwidget.c
++++ b/src/xwidget.c
+@@ -709,8 +709,8 @@ xwidget_from_id (uint32_t id)
+   Lisp_Object key = make_fixnum (id);
+   Lisp_Object xwidget = Fgethash (key, id_to_xwidget_map, Qnil);
+ 
+-  if (NILP (xwidget))
+-    emacs_abort ();
++  if (NILP (xwidget) || !XWIDGETP (xwidget))
++    return NULL;
+ 
+   return XXWIDGET (xwidget);
+ }
+@@ -4060,6 +4060,8 @@ static struct xwidget_view *
+ xwidget_view_lookup (struct xwidget *xw, struct window *w)
+ {
+   Lisp_Object xwidget, window, ret;
++  if (xw == NULL || w == NULL)
++    return NULL;
+   XSETXWIDGET (xwidget, xw);
+   XSETWINDOW (window, w);
+ 

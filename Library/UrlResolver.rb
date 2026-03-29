@@ -1,15 +1,7 @@
-TAP_OWNER = "jaaasonsun"
-TAP_REPO = "emacs-plus"
-
 class UrlResolver
   def initialize(version, mode)
-    name = "#{TAP_REPO}@#{version}"
-    tap = Tap.fetch(TAP_OWNER, TAP_REPO)
     @version = version
-    @formula_root =
-      mode == "local" || !tap.installed? ?
-        Dir.pwd :
-        (tap.path.to_s.delete_suffix "/Formula/#{name}.rb")
+    @formula_root = mode == "local" ? Dir.pwd : File.expand_path("..", __dir__)
   end
 
   def patch_url name
