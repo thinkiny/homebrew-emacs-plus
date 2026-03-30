@@ -1,55 +1,101 @@
 diff --git a/src/nsfns.m b/src/nsfns.m
-index d3370b849c5..e9f40310b2d 100644
+index 9569b2616f1..d2ae52d10cb 100644
 --- a/src/nsfns.m
 +++ b/src/nsfns.m
-@@ -320,6 +320,19 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+@@ -320,6 +320,10 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
        else
            [[view window] setOpaque: YES];
  
-+      /* find the NSBox under title bar and set fill color */
-+      for (NSView *subview in view.window.contentView.subviews)
-+	{
-+	  for (NSView *subsubview in subview.subviews)
-+	    {
-+	      if ([subsubview isKindOfClass:[NSBox class]])
-+		{
-+                  NSBox *titleView = (NSBox *)subsubview;
-+                  titleView.fillColor = [col colorWithAlphaComponent: alpha];
-+                }
-+            }
-+        }
++      EmacsWindow *window = (EmacsWindow *) [view window];
++      if (window)
++        [window updateWindowGlassWithColor: col alpha: alpha];
 +
        face = FRAME_DEFAULT_FACE (f);
        if (face)
          {
-@@ -365,6 +378,22 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+@@ -365,6 +369,10 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
    f->alpha_background = alpha;
    [[view window] setBackgroundColor: [f->output_data.ns->background_color
  					 colorWithAlphaComponent: alpha]];
-+
-+  /* find the NSBox under title bar and set new alpha */
-+  for (NSView *subview in view.window.contentView.subviews)
-+    {
-+      for (NSView *subsubview in subview.subviews)
-+        {
-+          if ([subsubview isKindOfClass:[NSBox class]])
-+            {
-+              NSBox *titleView = (NSBox *)subsubview;
-+	      titleView.fillColor =
-+		[f->output_data.ns->background_color
-+		    colorWithAlphaComponent: alpha];
-+            }
-+        }
-+    }
-+
++  EmacsWindow *window = (EmacsWindow *) [view window];
++  if (window)
++    [window updateWindowGlassWithColor: f->output_data.ns->background_color
++                              alpha: alpha];
    recompute_basic_faces (f);
    SET_FRAME_GARBAGED (f);
  }
+@@ -1232,6 +1240,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   Lisp_Object display;
+   struct ns_display_info *dpyinfo = NULL;
+   Lisp_Object parent, parent_frame;
++  Lisp_Object default_alpha_background = Qnil;
+   struct kboard *kb;
+   static int desc_ctr = 1;
+   NSWindow *main_window = [NSApp mainWindow];
+@@ -1464,6 +1473,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+ 
+   fset_parent_frame (f, parent_frame);
+   store_frame_param (f, Qparent_frame, parent_frame);
++  if (FRAME_PARENT_FRAME (f))
++    default_alpha_background =
++      make_float (FRAME_PARENT_FRAME (f)->alpha_background);
+ 
+   gui_default_parameter (f, parms, Qz_group, Qnil, NULL, NULL, RES_TYPE_SYMBOL);
+   gui_default_parameter (f, parms, Qno_focus_on_map, Qnil,
+@@ -1567,7 +1579,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+                          RES_TYPE_NUMBER);
+   gui_default_parameter (f, parms, Qalpha, Qnil,
+                          "alpha", "Alpha", RES_TYPE_NUMBER);
+-  gui_default_parameter (f, parms, Qalpha_background, Qnil,
++  gui_default_parameter (f, parms, Qalpha_background, default_alpha_background,
+                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+   gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                          "bordersRespectAlphaBackground",
+diff --git a/src/nsterm.h b/src/nsterm.h
+index 60a0ef0c358..b8cd7fec149 100644
+--- a/src/nsterm.h
++++ b/src/nsterm.h
+@@ -427,6 +427,8 @@ enum ns_return_frame_mode
+   enum ns_return_frame_mode dnd_mode;
+   BOOL dnd_allow_same_frame;
+   BOOL dnd_move_tooltip_with_frame;
++  NSView *window_glass_view;
++  NSView *title_tint_view;
+ }
+ 
+ #ifdef NS_IMPL_GNUSTEP
+@@ -442,6 +444,8 @@ enum ns_return_frame_mode
+ - (NSInteger) borderWidth;
+ - (BOOL) restackWindow: (NSWindow *) win above: (BOOL) above;
+ - (void) setAppearance;
++- (void) updateWindowGlassWithColor: (NSColor *)baseColor
++                              alpha: (CGFloat)alpha;
+ - (void) setLastDragEvent: (NSEvent *) event;
+ - (NSDragOperation) beginDrag: (NSDragOperation) op
+ 		forPasteboard: (NSPasteboard *) pasteboard
 diff --git a/src/nsterm.m b/src/nsterm.m
-index d99c6e9875c..ab2f535d34d 100644
+index f35f98723f6..01d0db4e227 100644
 --- a/src/nsterm.m
 +++ b/src/nsterm.m
-@@ -9629,10 +9629,7 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+@@ -9656,12 +9656,16 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+ {
+   NSWindowStyleMask styleMask;
+   int width, height;
++  BOOL undecorated = FRAME_UNDECORATED (f);
++  BOOL undecorated_round = FRAME_UNDECORATED_ROUND (f);
++  BOOL has_title_region = !undecorated && !undecorated_round;
++  BOOL use_full_size_content = !f->tooltip && (!undecorated || undecorated_round);
+ 
+   NSTRACE ("[EmacsWindow initWithEmacsFrame:fullscreen:screen:]");
+ 
+   if (fullscreen)
+     styleMask = NSWindowStyleMaskBorderless;
+-  else if (FRAME_UNDECORATED (f))
++  else if (undecorated)
+     {
+       styleMask = NSWindowStyleMaskBorderless;
+ #ifdef NS_IMPL_COCOA
+@@ -9676,10 +9680,8 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
  		 | NSWindowStyleMaskMiniaturizable
  		 | NSWindowStyleMaskClosable);
  
@@ -57,96 +103,135 @@ index d99c6e9875c..ab2f535d34d 100644
 -    {
 -      styleMask |= NSFullSizeContentViewWindowMask;
 -    }
-+  styleMask |= NSFullSizeContentViewWindowMask;
++  if (use_full_size_content)
++    styleMask |= NSFullSizeContentViewWindowMask;
  
    last_drag_event = nil;
  
-@@ -9652,7 +9649,62 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+@@ -9699,7 +9701,53 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
        EmacsView *view = FRAME_NS_VIEW (f);
  
        [self setDelegate:view];
 -      [[self contentView] addSubview:view];
 +
-+      /* View Hierarchy:
-+	 contentView
-+	 - effectView, extended under title bar
-+           - titleBackgroundView(optional), view under title bar to match emacs background
-+           - boundingView, emacs looks at EmavsView's superview for frame size
-+             - EmacsView, actual emacs content
-+       */
-+
-+      /* view for visual effect */
-+      NSGlassEffectView *effectView = [NSGlassEffectView alloc];
-+      [effectView initWithFrame:
-+          NSMakeRect (0, 0, FRAME_TEXT_COLS_TO_PIXEL_WIDTH (f, f->text_cols),
-+                      FRAME_TEXT_LINES_TO_PIXEL_HEIGHT (f, f->text_lines))];
-+      [effectView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
-+      effectView.style = NSGlassEffectViewStyleClear;
++      NSGlassEffectView *effectView =
++        [[NSGlassEffectView alloc] initWithFrame:NSMakeRect (0, 0, width, height)];
++      [effectView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
++      effectView.style = NSGlassEffectViewStyleRegular;
++#ifdef NS_IMPL_COCOA
++      effectView.wantsLayer = YES;
++      effectView.layer.backgroundColor = [[NSColor clearColor] CGColor];
++      id effect_material_view = effectView;
++      if ([effect_material_view respondsToSelector:@selector(setBlendingMode:)])
++        [effect_material_view setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
++      if ([effect_material_view respondsToSelector:@selector(setState:)])
++        [effect_material_view setState:NSVisualEffectStateFollowsWindowActiveState];
++#endif
 +      [[self contentView] addSubview:effectView];
++      window_glass_view = effectView;
 +
 +      NSView *boundingView = [[NSView alloc] initWithFrame:NSMakeRect (0, 0, 0, 0)];
-+      [boundingView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
 +      [effectView addSubview:boundingView];
-+      NSBox *titleBackgroundView;
 +
 +      NSLayoutGuide *layout = self.contentLayoutGuide;
 +
-+      /* anchor bounding view based on frame undecorated setting */
 +      boundingView.translatesAutoresizingMaskIntoConstraints = NO;
 +      [boundingView.bottomAnchor constraintEqualToAnchor:layout.bottomAnchor].active = YES;
 +      [boundingView.leftAnchor constraintEqualToAnchor:layout.leftAnchor].active = YES;
 +      [boundingView.rightAnchor constraintEqualToAnchor:layout.rightAnchor].active = YES;
 +
-+      if (FRAME_UNDECORATED_ROUND (f) || FRAME_UNDECORATED (f))
++      if (undecorated_round || undecorated)
 +        [boundingView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor].active = YES;
 +      else
++        [boundingView.topAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
++
++      if (has_title_region)
 +        {
-+          /* constraint emacs content under titlebar */
-+          [boundingView.topAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
++          title_tint_view = [[NSView alloc] initWithFrame:NSZeroRect];
++          title_tint_view.wantsLayer = YES;
++          title_tint_view.translatesAutoresizingMaskIntoConstraints = NO;
++          [effectView addSubview:title_tint_view];
 +
-+          /* add separate view for titlebar background */
-+          titleBackgroundView = [[NSBox alloc] initWithFrame:NSMakeRect (0, 0, 0, 0)];
-+          [titleBackgroundView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
-+          [effectView addSubview:titleBackgroundView];
-+
-+          titleBackgroundView.boxType = NSBoxCustom;
-+          titleBackgroundView.borderWidth = 0;
-+          titleBackgroundView.transparent = NO;
-+          titleBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
-+
-+          /* anchor view to area under title bar */
-+          [titleBackgroundView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor].active = YES;
-+          [titleBackgroundView.bottomAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
-+          [titleBackgroundView.leftAnchor constraintEqualToAnchor:layout.leftAnchor].active = YES;
-+          [titleBackgroundView.rightAnchor constraintEqualToAnchor:layout.rightAnchor].active = YES;
-+	}
++          [title_tint_view.topAnchor constraintEqualToAnchor:effectView.topAnchor].active = YES;
++          [title_tint_view.leftAnchor constraintEqualToAnchor:effectView.leftAnchor].active = YES;
++          [title_tint_view.rightAnchor constraintEqualToAnchor:effectView.rightAnchor].active = YES;
++          [title_tint_view.bottomAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
++        }
 +
 +      [boundingView addSubview:view];
++      [boundingView release];
        [self makeFirstResponder:view];
  
  #if !defined (NS_IMPL_COCOA) || MAC_OS_X_VERSION_MIN_REQUIRED <= 1090
-@@ -9706,6 +9758,12 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+@@ -9722,7 +9770,7 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+ 
+ #if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+       if ([self respondsToSelector:@selector(titlebarAppearsTransparent)])
+-        [self setTitlebarAppearsTransparent:FRAME_NS_TRANSPARENT_TITLEBAR (f)];
++        [self setTitlebarAppearsTransparent:YES];
+ #endif
+ 
+       [self setParentChildRelationships];
+@@ -9752,6 +9800,8 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+               [col colorWithAlphaComponent:f->alpha_background]];
        if (f->alpha_background != (EmacsCGFloat) 1.0)
          [self setOpaque:NO];
++      [self setHasShadow:YES];
++      [self updateWindowGlassWithColor: col alpha: f->alpha_background];
  
-+      if (!FRAME_UNDECORATED_ROUND (f) && !FRAME_UNDECORATED (f))
-+        {
-+          titleBackgroundView.fillColor =
-+              [col colorWithAlphaComponent:f->alpha_background];
-+        }
-+
        /* toolbar support */
        [self createToolbar:f];
+@@ -9786,6 +9836,20 @@ may be chosen (which is undesirable).  */
+ }
  
-@@ -9727,6 +9785,11 @@ may be chosen (which is undesirable).  */
-     }
  
-   if (FRAME_UNDECORATED_ROUND (f))
-+    {
-+      [self setTitlebarAppearsTransparent:YES];
-+      [self setTitleVisibility:NSWindowTitleHidden];
-+    }
-+  if (FRAME_UNDECORATED (f))
-     {
-       [self setTitlebarAppearsTransparent:YES];
-       [self setTitleVisibility:NSWindowTitleHidden];
++- (void) updateWindowGlassWithColor: (NSColor *)baseColor
++                              alpha: (CGFloat)alpha
++{
++  if (title_tint_view == nil || baseColor == nil)
++    return;
++
++#ifdef NS_IMPL_COCOA
++  CGFloat clampedAlpha = MIN (1.0, MAX (0.0, alpha));
++  title_tint_view.layer.backgroundColor =
++    [[baseColor colorWithAlphaComponent:clampedAlpha] CGColor];
++#endif
++}
++
++
+ - (void)createToolbar: (struct frame *)f
+ {
+   if (FRAME_UNDECORATED (f) || FRAME_UNDECORATED_ROUND (f)
+@@ -9824,6 +9888,12 @@ - (void)dealloc
+ {
+   NSTRACE ("[EmacsWindow dealloc]");
+ 
++  [title_tint_view release];
++  title_tint_view = nil;
++
++  [window_glass_view release];
++  window_glass_view = nil;
++
+   /* We need to release the toolbar ourselves.  */
+   [[self toolbar] release];
+   [self setToolbar: nil];
+@@ -9881,7 +9951,7 @@ - (void)setParentChildRelationships
+      drop-shadows break this effect, so remove them on undecorated
+      child frames.  */
+   if (parentFrame && FRAME_UNDECORATED (ourFrame))
+-    [self setHasShadow:NO];
++    [self setHasShadow:YES];
+   else
+     [self setHasShadow:YES];
+ #endif
+@@ -10331,6 +10401,10 @@ - (void)setAppearance
+          [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+ 
+    [self setAppearance:appearance];
++   [self updateWindowGlassWithColor:
++           [NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND
++                      (FACE_FROM_ID (f, DEFAULT_FACE_ID))]
++                                alpha: f->alpha_background];
+ #endif /* MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 */
+ }
+ 
