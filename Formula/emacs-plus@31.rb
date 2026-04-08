@@ -95,6 +95,7 @@ class EmacsPlusAT31 < EmacsBase
   local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
   local_patch "glass", sha: "347cbca4f139645ad4f973c9e94904eb32cb87c502739e12f61d2642709f3f8a"
   local_patch "xwidget-transparency", sha: "5062c465e75d5384af7b59a952f2e7df59ba19d60d88e5254dbf40f49eba08f9"
+  local_patch "xwidget-proxy", sha: "e892a0de0743b0ca16590a5ebef83147c495756697f846e038431f3a1d5eecdc"
 
   #
   # Install
@@ -160,6 +161,7 @@ class EmacsPlusAT31 < EmacsBase
     args << "--with-webp"
     args << "--without-pop" if build.with? "mailutils"
     args << "--with-xwidgets" if build.with? "xwidgets"
+    ENV.append "LDFLAGS", "-Wl,-framework -Wl,Network" if build.with? "xwidgets"
 
     system "./autogen.sh"
 

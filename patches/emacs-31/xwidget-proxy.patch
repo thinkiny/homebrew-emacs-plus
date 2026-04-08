@@ -1,0 +1,148 @@
+diff --git a/src/nsxwidget.m b/src/nsxwidget.m
+index 2292440..d57f69e 100644
+--- a/src/nsxwidget.m
++++ b/src/nsxwidget.m
+@@ -30,11 +30,14 @@
+ #import <AppKit/AppKit.h>
+ #import <WebKit/WebKit.h>
+ #import <objc/message.h>
++#import <Network/Network.h>
+ 
+ static void nsxwidget_apply_view_clear_background (NSView *view);
+ static void nsxwidget_apply_webview_transparency (WKWebView *webview);
+ static void nsxwidget_refresh_transparency_for_view (struct xwidget_view *xv);
+ static void nsxwidget_invalidate_host_for_view (struct xwidget_view *xv);
++static void nsxwidget_apply_proxy_to_configuration
++  (WKWebViewConfiguration *configuration);
+ 
+ /* Thoughts on NS Cocoa xwidget and webkit2:
+ 
+@@ -88,6 +91,7 @@ - (id) initWithFrame:(CGRect)frame
+     ((void (*)(id, SEL, BOOL)) objc_msgSend) (configuration,
+                                                cfg_set_draws_background,
+                                                NO);
++  nsxwidget_apply_proxy_to_configuration (configuration);
+ 
+   self = [super initWithFrame:frame configuration:configuration];
+   if (self)
+@@ -166,6 +170,8 @@ - (void) webView:(WKWebView *)webView
+ decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
+ decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
+ {
++  nsxwidget_apply_proxy_to_configuration (webView.configuration);
++
+   switch (navigationAction.navigationType) {
+   case WKNavigationTypeLinkActivated:
+     decisionHandler (WKNavigationActionPolicyAllow);
+@@ -383,6 +389,7 @@ - (void) userContentController:(WKUserContentController *)userContentController
+ nsxwidget_webkit_goto_uri (struct xwidget *xw, const char *uri)
+ {
+   XwWebView *xwWebView = (XwWebView *) xw->xwWidget;
++  nsxwidget_apply_proxy_to_configuration (xwWebView.configuration);
+   NSString *urlString = [NSString stringWithUTF8String:uri];
+   NSURL *url = [NSURL URLWithString:urlString];
+   NSURLRequest *urlRequest = [NSURLRequest requestWithURL:url];
+@@ -807,3 +814,86 @@ - (void) drawRect:(NSRect)dirty_rect
+         }
+     }
+ }
++
++static void
++nsxwidget_apply_proxy_to_configuration (WKWebViewConfiguration *configuration)
++{
++  if (configuration == nil)
++    return;
++
++  WKWebsiteDataStore *data_store = configuration.websiteDataStore;
++  Lisp_Object proxy_sym =
++    Fintern (build_string ("xwidget-webkit-proxy"), Qnil);
++  Lisp_Object proxy_value = Fsymbol_value (proxy_sym);
++  nw_endpoint_t endpoint = NULL;
++  nw_proxy_config_t proxy_config = NULL;
++  NSURLComponents *components = nil;
++  NSString *scheme = nil;
++  NSString *host = nil;
++  NSString *port = nil;
++  NSString *username = nil;
++  NSString *password = nil;
++
++  if (NILP (proxy_value) || !STRINGP (proxy_value))
++    {
++      data_store.proxyConfigurations = nil;
++      return;
++    }
++
++  components =
++    [NSURLComponents
++      componentsWithString:[NSString stringWithLispString:proxy_value]];
++  scheme = [components.scheme lowercaseString];
++  host = components.host;
++  port = components.port
++    ? [components.port stringValue]
++    : ([scheme isEqualToString:@"http"] ? @"80"
++       : [scheme isEqualToString:@"https"] ? @"443"
++       : [scheme isEqualToString:@"socks5"] ? @"1080"
++       : nil);
++  username = components.user;
++  password = components.password;
++
++  if (scheme == nil || host == nil || [host length] == 0
++      || port == nil || [port length] == 0)
++    {
++      data_store.proxyConfigurations = nil;
++      return;
++    }
++
++  endpoint = nw_endpoint_create_host ([host UTF8String], [port UTF8String]);
++  if (endpoint == NULL)
++    {
++      data_store.proxyConfigurations = nil;
++      return;
++    }
++
++  if ([scheme isEqualToString:@"socks5"])
++    proxy_config = nw_proxy_config_create_socksv5 (endpoint);
++  else if ([scheme isEqualToString:@"http"])
++    proxy_config = nw_proxy_config_create_http_connect (endpoint, NULL);
++  else if ([scheme isEqualToString:@"https"])
++    {
++      nw_protocol_options_t tls_options = nw_tls_create_options ();
++      proxy_config = nw_proxy_config_create_http_connect (endpoint, tls_options);
++      if (tls_options)
++        nw_release (tls_options);
++    }
++
++  if (proxy_config == NULL)
++    {
++      nw_release (endpoint);
++      data_store.proxyConfigurations = nil;
++      return;
++    }
++
++  if (username != nil && [username length] > 0)
++    nw_proxy_config_set_username_and_password (
++      proxy_config, [username UTF8String],
++      (password != nil && [password length] > 0)
++      ? [password UTF8String] : NULL);
++
++  data_store.proxyConfigurations = [NSArray arrayWithObject:proxy_config];
++  nw_release (proxy_config);
++  nw_release (endpoint);
++}
+diff --git a/src/xwidget.c b/src/xwidget.c
+index eb6402d..1f3e281 100644
+--- a/src/xwidget.c
++++ b/src/xwidget.c
+@@ -3979,6 +3979,12 @@ widgets; kill all xwidget-webkit buffers for changes in this setting
+ to take effect.  */);
+   xwidget_webkit_disable_javascript = false;
+ 
++  DEFVAR_LISP ("xwidget-webkit-proxy", Vxwidget_webkit_proxy,
++               doc: /* A single global proxy (all_proxy-style) for all
++xwidget-webkit requests.
++If nil, xwidget-webkit uses direct networking.  */);
++  Vxwidget_webkit_proxy = Qnil;
++
+   Fprovide (intern ("xwidget-internal"), Qnil);
+ 
+   id_to_xwidget_map = CALLN (Fmake_hash_table, QCtest, Qeq,
