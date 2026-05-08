@@ -76,7 +76,7 @@ class EmacsPlusAT31 < EmacsBase
   if ENV['HOMEBREW_EMACS_PLUS_31_REVISION']
     url "https://github.com/emacs-mirror/emacs.git", :revision => ENV['HOMEBREW_EMACS_PLUS_31_REVISION']
   else
-    url "https://github.com/emacs-mirror/emacs.git", :branch => "master"
+    url "https://github.com/emacs-mirror/emacs.git", :branch => "emacs-31"
   end
 
   #
@@ -96,6 +96,8 @@ class EmacsPlusAT31 < EmacsBase
   local_patch "glass", sha: "347cbca4f139645ad4f973c9e94904eb32cb87c502739e12f61d2642709f3f8a"
   local_patch "xwidget-transparency", sha: "5062c465e75d5384af7b59a952f2e7df59ba19d60d88e5254dbf40f49eba08f9"
   local_patch "xwidget-proxy", sha: "e892a0de0743b0ca16590a5ebef83147c495756697f846e038431f3a1d5eecdc"
+  local_patch "mac-font-use-typo-metrics", sha: "318395d3869d3479da4593360bcb11a5df08b494b995287074d0d744ec562c17"
+  local_patch "aggressive-read-buffering", sha: "8f5350ebc42c61ee05b7c21cad0e55e9bd2c4da49e023b74cc76fdba5595f6a3"
 
   #
   # Install
