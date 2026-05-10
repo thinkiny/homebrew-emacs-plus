@@ -1,0 +1,231 @@
+diff --git a/src/nsfns.m b/src/nsfns.m
+index 19b257f..f32a61e 100644
+--- a/src/nsfns.m
++++ b/src/nsfns.m
+@@ -320,6 +320,10 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+       else
+           [[view window] setOpaque: YES];
+ 
++      EmacsWindow *window = (EmacsWindow *) [view window];
++      if (window)
++        [window updateWindowGlassWithColor: col alpha: alpha];
++
+       face = FRAME_DEFAULT_FACE (f);
+       if (face)
+         {
+@@ -365,6 +369,10 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   f->alpha_background = alpha;
+   [[view window] setBackgroundColor: [f->output_data.ns->background_color
+ 					 colorWithAlphaComponent: alpha]];
++  EmacsWindow *window = (EmacsWindow *) [view window];
++  if (window)
++    [window updateWindowGlassWithColor: f->output_data.ns->background_color
++                              alpha: alpha];
+   recompute_basic_faces (f);
+   SET_FRAME_GARBAGED (f);
+ }
+@@ -1232,6 +1240,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   Lisp_Object display;
+   struct ns_display_info *dpyinfo = NULL;
+   Lisp_Object parent, parent_frame;
++  Lisp_Object default_alpha_background = Qnil;
+   struct kboard *kb;
+   static int desc_ctr = 1;
+   NSWindow *main_window = [NSApp mainWindow];
+@@ -1464,6 +1473,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+ 
+   fset_parent_frame (f, parent_frame);
+   store_frame_param (f, Qparent_frame, parent_frame);
++  if (FRAME_PARENT_FRAME (f))
++    default_alpha_background =
++      make_float (FRAME_PARENT_FRAME (f)->alpha_background);
+ 
+   gui_default_parameter (f, parms, Qz_group, Qnil, NULL, NULL, RES_TYPE_SYMBOL);
+   gui_default_parameter (f, parms, Qno_focus_on_map, Qnil,
+@@ -1567,7 +1579,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+                          RES_TYPE_NUMBER);
+   gui_default_parameter (f, parms, Qalpha, Qnil,
+                          "alpha", "Alpha", RES_TYPE_NUMBER);
+-  gui_default_parameter (f, parms, Qalpha_background, Qnil,
++  gui_default_parameter (f, parms, Qalpha_background, default_alpha_background,
+                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+   gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                          "bordersRespectAlphaBackground",
+diff --git a/src/nsterm.h b/src/nsterm.h
+index 5b97628..b6843dc 100644
+--- a/src/nsterm.h
++++ b/src/nsterm.h
+@@ -427,6 +427,8 @@ enum ns_return_frame_mode
+   enum ns_return_frame_mode dnd_mode;
+   BOOL dnd_allow_same_frame;
+   BOOL dnd_move_tooltip_with_frame;
++  NSView *window_glass_view;
++  NSView *title_tint_view;
+ }
+ 
+ #ifdef NS_IMPL_GNUSTEP
+@@ -442,6 +444,8 @@ enum ns_return_frame_mode
+ - (NSInteger) borderWidth;
+ - (BOOL) restackWindow: (NSWindow *) win above: (BOOL) above;
+ - (void) setAppearance;
++- (void) updateWindowGlassWithColor: (NSColor *)baseColor
++                              alpha: (CGFloat)alpha;
+ - (void) setLastDragEvent: (NSEvent *) event;
+ - (NSDragOperation) beginDrag: (NSDragOperation) op
+ 		forPasteboard: (NSPasteboard *) pasteboard
+diff --git a/src/nsterm.m b/src/nsterm.m
+index 4114195..b341f29 100644
+--- a/src/nsterm.m
++++ b/src/nsterm.m
+@@ -9869,12 +9869,15 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+ {
+   NSWindowStyleMask styleMask;
+   int width, height;
++  BOOL undecorated = FRAME_UNDECORATED (f);
++  BOOL undecorated_round = FRAME_UNDECORATED_ROUND (f);
++  BOOL use_full_size_content = !f->tooltip && (!undecorated || undecorated_round);
+ 
+   NSTRACE ("[EmacsWindow initWithEmacsFrame:fullscreen:screen:]");
+ 
+   if (fullscreen)
+     styleMask = NSWindowStyleMaskBorderless;
+-  else if (FRAME_UNDECORATED (f))
++  else if (undecorated)
+     {
+       styleMask = NSWindowStyleMaskBorderless;
+ #ifdef NS_IMPL_COCOA
+@@ -9889,10 +9892,8 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+ 		 | NSWindowStyleMaskMiniaturizable
+ 		 | NSWindowStyleMaskClosable);
+ 
+-  if (FRAME_UNDECORATED_ROUND (f))
+-    {
+-      styleMask |= NSFullSizeContentViewWindowMask;
+-    }
++  if (use_full_size_content)
++    styleMask |= NSFullSizeContentViewWindowMask;
+ 
+   last_drag_event = nil;
+ 
+@@ -9912,7 +9913,48 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+       EmacsView *view = FRAME_NS_VIEW (f);
+ 
+       [self setDelegate:view];
+-      [[self contentView] addSubview:view];
++
++      NSGlassEffectView *effectView =
++        [[NSGlassEffectView alloc] initWithFrame:NSMakeRect (0, 0, width, height)];
++      [effectView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
++      effectView.style = NSGlassEffectViewStyleRegular;
++#ifdef NS_IMPL_COCOA
++      if (undecorated_round)
++        effectView.cornerRadius = 10.0;
++#endif
++      [[self contentView] addSubview:effectView];
++      window_glass_view = effectView;
++
++      NSView *boundingView = [[NSView alloc] initWithFrame:NSMakeRect (0, 0, 0, 0)];
++      [effectView addSubview:boundingView];
++
++      NSLayoutGuide *layout = self.contentLayoutGuide;
++
++      boundingView.translatesAutoresizingMaskIntoConstraints = NO;
++      [boundingView.bottomAnchor constraintEqualToAnchor:layout.bottomAnchor].active = YES;
++      [boundingView.leftAnchor constraintEqualToAnchor:layout.leftAnchor].active = YES;
++      [boundingView.rightAnchor constraintEqualToAnchor:layout.rightAnchor].active = YES;
++
++      if (undecorated_round || undecorated)
++        [boundingView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor].active = YES;
++      else
++        [boundingView.topAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
++
++      if (!undecorated && !undecorated_round)
++        {
++          title_tint_view = [[NSView alloc] initWithFrame:NSZeroRect];
++          title_tint_view.wantsLayer = YES;
++          title_tint_view.translatesAutoresizingMaskIntoConstraints = NO;
++          [effectView addSubview:title_tint_view];
++
++          [title_tint_view.topAnchor constraintEqualToAnchor:effectView.topAnchor].active = YES;
++          [title_tint_view.leftAnchor constraintEqualToAnchor:effectView.leftAnchor].active = YES;
++          [title_tint_view.rightAnchor constraintEqualToAnchor:effectView.rightAnchor].active = YES;
++          [title_tint_view.bottomAnchor constraintEqualToAnchor:layout.topAnchor].active = YES;
++        }
++
++      [boundingView addSubview:view];
++      [boundingView release];
+       [self makeFirstResponder:view];
+ 
+ #if !defined (NS_IMPL_COCOA) || MAC_OS_X_VERSION_MIN_REQUIRED <= 1090
+@@ -9935,7 +9977,7 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+ 
+ #if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+       if ([self respondsToSelector:@selector(titlebarAppearsTransparent)])
+-        [self setTitlebarAppearsTransparent:FRAME_NS_TRANSPARENT_TITLEBAR (f)];
++        [self setTitlebarAppearsTransparent:YES];
+ #endif
+ 
+       [self setParentChildRelationships];
+@@ -9965,6 +10007,8 @@ - (instancetype) initWithEmacsFrame: (struct frame *) f
+               [col colorWithAlphaComponent:f->alpha_background]];
+       if (f->alpha_background != (EmacsCGFloat) 1.0)
+         [self setOpaque:NO];
++      [self setHasShadow:YES];
++      [self updateWindowGlassWithColor: col alpha: f->alpha_background];
+ 
+       /* toolbar support */
+       [self createToolbar:f];
+@@ -9999,6 +10043,20 @@ may be chosen (which is undesirable).  */
+ }
+ 
+ 
++- (void) updateWindowGlassWithColor: (NSColor *)baseColor
++                              alpha: (CGFloat)alpha
++{
++  if (title_tint_view == nil || baseColor == nil)
++    return;
++
++#ifdef NS_IMPL_COCOA
++  CGFloat clampedAlpha = MIN (1.0, MAX (0.0, alpha));
++  title_tint_view.layer.backgroundColor =
++    [[baseColor colorWithAlphaComponent:clampedAlpha] CGColor];
++#endif
++}
++
++
+ - (void)createToolbar: (struct frame *)f
+ {
+   if (FRAME_UNDECORATED (f) || FRAME_UNDECORATED_ROUND (f)
+@@ -10037,6 +10095,12 @@ - (void)dealloc
+ {
+   NSTRACE ("[EmacsWindow dealloc]");
+ 
++  [title_tint_view release];
++  title_tint_view = nil;
++
++  [window_glass_view release];
++  window_glass_view = nil;
++
+   /* We need to release the toolbar ourselves.  */
+   [[self toolbar] release];
+   [self setToolbar: nil];
+@@ -10094,7 +10158,7 @@ - (void)setParentChildRelationships
+      drop-shadows break this effect, so remove them on undecorated
+      child frames.  */
+   if (parentFrame && FRAME_UNDECORATED (ourFrame))
+-    [self setHasShadow:NO];
++    [self setHasShadow:YES];
+   else
+     [self setHasShadow:YES];
+ #endif
+@@ -10544,6 +10608,10 @@ - (void)setAppearance
+          [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+ 
+    [self setAppearance:appearance];
++   [self updateWindowGlassWithColor:
++           [NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND
++                      (FACE_FROM_ID (f, DEFAULT_FACE_ID))]
++                                alpha: f->alpha_background];
+ #endif /* MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 */
+ }
+ 
