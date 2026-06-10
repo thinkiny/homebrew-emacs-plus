@@ -99,8 +99,8 @@ class EmacsBase < Formula
     }
   end
 
-  def inject_protected_resources_usage_desc
-    ohai "Injecting description for protected resources usage"
+  def inject_plist_extras
+    ohai "Injecting Info.plist extras"
     app = "#{prefix}/Emacs.app"
     plist = "#{app}/Contents/Info.plist"
 
@@ -110,6 +110,9 @@ class EmacsBase < Formula
     system "/usr/libexec/PlistBuddy -c 'Set NSMicrophoneUsageDescription Emacs requires permission to access the Microphone.' '#{plist}'"
     system "/usr/libexec/PlistBuddy -c 'Add NSSpeechRecognitionUsageDescription string' '#{plist}' || true"
     system "/usr/libexec/PlistBuddy -c 'Set NSSpeechRecognitionUsageDescription Emacs requires permission to handle any speech recognition.' '#{plist}' || true"
+
+    plist_set plist, "NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac", "bool", true
+
     system "touch '#{app}'"
   end
 
