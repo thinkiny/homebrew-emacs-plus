@@ -19,6 +19,7 @@ class EmacsPlusAT32 < EmacsBase
   option "with-debug", "Build with debug symbols and debugger friendly optimizations"
   option "with-xwidgets", "Experimental: build with xwidgets support"
   option "with-compress-install", "Build with compressed install optimization"
+  option "with-frame-transparency", "Use frame-transparency (blur + element-level alpha) instead of alpha-background + glass"
 
   #
   # Dependencies
@@ -90,8 +91,12 @@ class EmacsPlusAT32 < EmacsBase
 
   local_patch "system-appearance", sha: "53283503db5ed2887e9d733baaaf80f2c810e668e782e988bda5855a0b1ebeb4"
   local_patch "round-undecorated-frame", sha: "c9430a1ead81e313b3d2877ff6f8044fb29441eecc7cc42000515d7c8ec6380f"
-  local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
-  local_patch "glass", sha: "1116513b2b5cc644a4e711690b0443ea5100d29d965a2654e66fa469fd0af66e"
+  if build.with? "frame-transparency"
+    local_patch "frame-transparency", sha: "44b2a086d64f0a924b6adae529c82d4be32c35a80aa7275b236851982cf2189a"
+  else
+    local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
+    local_patch "glass", sha: "1116513b2b5cc644a4e711690b0443ea5100d29d965a2654e66fa469fd0af66e"
+  end
   local_patch "xwidget-transparency", sha: "5062c465e75d5384af7b59a952f2e7df59ba19d60d88e5254dbf40f49eba08f9"
   local_patch "xwidget-proxy", sha: "e892a0de0743b0ca16590a5ebef83147c495756697f846e038431f3a1d5eecdc"
   local_patch "mac-font-use-typo-metrics", sha: "318395d3869d3479da4593360bcb11a5df08b494b995287074d0d744ec562c17"
