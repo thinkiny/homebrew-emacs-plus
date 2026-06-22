@@ -45,6 +45,28 @@ class EmacsBase < Formula
     EOS
   end
 
+  # Directory containing libemutls_w.a, which libgccjit's linker needs to
+  # native-compile user packages at runtime.
+  def find_emutls_dir
+    gcc_cellar = "#{HOMEBREW_PREFIX}/Cellar/gcc"
+    return nil unless File.directory?(gcc_cellar)
+
+    emutls_files = Dir.glob("#{gcc_cellar}/**/libemutls_w.a")
+    return nil if emutls_files.empty?
+
+    File.dirname(emutls_files.first)
+  end
+
+  # LIBRARY_PATH so GUI-launched Emacs (which has no shell environment) can
+  # native-compile user packages: libgccjit's linker needs libemutls_w.a.
+  def build_library_path
+    [
+      find_emutls_dir,
+      "#{HOMEBREW_PREFIX}/lib/gcc/current",
+      "#{HOMEBREW_PREFIX}/lib",
+    ].compact.join(":")
+  end
+
   def inject_path
     ohai "Injecting PATH via wrapper script in Emacs.app/Contents/MacOS/Emacs"
     app = "#{prefix}/Emacs.app"
@@ -57,6 +79,14 @@ class EmacsBase < Formula
       puts x
     }
 
+    # LIBRARY_PATH for native compilation: libgccjit's linker needs
+    # libemutls_w.a when GUI-launched Emacs native-compiles user packages.
+    # Ungated on purpose — native comp needs it regardless of the PATH-injection
+    # toggle, and leaking it to child processes is benign (it only extends the
+    # linker search path, unlike CC which forced a different compiler).
+    library_path = build_library_path
+    library_path_line = library_path.empty? ? "" : "export LIBRARY_PATH='#{library_path.gsub("'", "'\\''")}'"
+
     # Rename original binary
     File.rename(emacs_binary, emacs_real) unless File.exist?(emacs_real)
 
@@ -65,6 +95,7 @@ class EmacsBase < Formula
       f.write <<~EOS
         #!/bin/sh
         #{path_injection_snippet.chomp}
+        #{library_path_line}
         exec "$(dirname "$0")/Emacs-real" "$@"
       EOS
     end
