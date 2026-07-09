@@ -45,9 +45,27 @@ class EmacsBase < Formula
     EOS
   end
 
+  # Find the versioned gcc driver (gcc-16 etc.) under the gcc opt prefix.
+  # Returns nil when the gcc formula is not installed.
+  def find_gcc_executable
+    Dir.glob("#{HOMEBREW_PREFIX}/opt/gcc/bin/gcc-*")
+       .select { |p| File.basename(p).match?(/\Agcc-\d+\z/) && File.executable?(p) }
+       .max_by { |p| File.basename(p).delete_prefix("gcc-").to_i }
+  end
+
   # Directory containing libemutls_w.a, which libgccjit's linker needs to
   # native-compile user packages at runtime.
+  #
+  # Ask gcc itself via -print-file-name: that is the mechanism the libgccjit
+  # driver uses internally, so it is authoritative. A Cellar-wide glob can
+  # pick a stale directory when multiple gcc versions are installed; it
+  # remains only as a last-resort fallback.
   def find_emutls_dir
+    if (gcc = find_gcc_executable)
+      path = IO.popen([gcc, "-print-file-name=libemutls_w.a"], err: File::NULL, &:read).strip
+      return File.expand_path(File.dirname(path)) if path.include?("/") && File.file?(path)
+    end
+
     gcc_cellar = "#{HOMEBREW_PREFIX}/Cellar/gcc"
     return nil unless File.directory?(gcc_cellar)
 
@@ -63,6 +81,7 @@ class EmacsBase < Formula
     [
       find_emutls_dir,
       "#{HOMEBREW_PREFIX}/lib/gcc/current",
+      "#{HOMEBREW_PREFIX}/opt/libgccjit/lib/gcc/current",
       "#{HOMEBREW_PREFIX}/lib",
     ].compact.join(":")
   end
