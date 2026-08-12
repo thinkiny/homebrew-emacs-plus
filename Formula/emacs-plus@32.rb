@@ -97,7 +97,8 @@ class EmacsPlusAT32 < EmacsBase
     local_patch "glass", sha: "1116513b2b5cc644a4e711690b0443ea5100d29d965a2654e66fa469fd0af66e"
   end
   local_patch "xwidget-transparency", sha: "5062c465e75d5384af7b59a952f2e7df59ba19d60d88e5254dbf40f49eba08f9"
-  local_patch "xwidget-proxy", sha: "e892a0de0743b0ca16590a5ebef83147c495756697f846e038431f3a1d5eecdc"
+  local_patch "xwidget-proxy", sha: "4a4215353813907b24e2dd62a9b5f080b4db1a934c677eac5d96da9a82104335"
+  local_patch "xwidget-use-after-free", sha: "5783b090b91e11d0a814d05147afff01dc56f91abb8e679cff29fccb0751d513"
   local_patch "mac-font-use-typo-metrics", sha: "318395d3869d3479da4593360bcb11a5df08b494b995287074d0d744ec562c17"
   local_patch "aggressive-read-buffering", sha: "8f5350ebc42c61ee05b7c21cad0e55e9bd2c4da49e023b74cc76fdba5595f6a3"
 

@@ -1,5 +1,5 @@
 diff --git a/src/nsxwidget.m b/src/nsxwidget.m
-index 2292440..d57f69e 100644
+index e125c2a2cf5..bad00306f3a 100644
 --- a/src/nsxwidget.m
 +++ b/src/nsxwidget.m
 @@ -30,11 +30,14 @@
@@ -17,7 +17,19 @@ index 2292440..d57f69e 100644
  
  /* Thoughts on NS Cocoa xwidget and webkit2:
  
-@@ -88,6 +91,7 @@ - (id) initWithFrame:(CGRect)frame
+@@ -57,6 +60,11 @@
+ @interface XwWebView : WKWebView
+ <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
+ @property struct xwidget *xw;
++/* True between a provisional navigation start and its finish.  While
++   loading, the web content process cannot answer xwHasFocus(), so
++   keyDown routes to Emacs directly.  Failed/hung loads leave this YES
++   (no didFail delegate exists), which keeps keys routed to Emacs.  */
++@property (assign) BOOL nsxwIsLoading;
+ /* Map url to whether javascript is blocked by
+    'Content-Security-Policy' sandbox without allow-scripts.  */
+ @property(retain) NSMutableDictionary *urlScriptBlocked;
+@@ -88,6 +96,7 @@ - (id) initWithFrame:(CGRect)frame
      ((void (*)(id, SEL, BOOL)) objc_msgSend) (configuration,
                                                 cfg_set_draws_background,
                                                 NO);
@@ -25,7 +37,31 @@ index 2292440..d57f69e 100644
  
    self = [super initWithFrame:frame configuration:configuration];
    if (self)
-@@ -166,6 +170,8 @@ - (void) webView:(WKWebView *)webView
+@@ -131,6 +140,7 @@ - (id) initWithFrame:(CGRect)frame
+ - (void) webView:(WKWebView *)webView
+ didFinishNavigation:(WKNavigation *)navigation
+ {
++  self.nsxwIsLoading = NO;
+   if (self.xw && self.xw->xv)
+     {
+       nsxwidget_refresh_transparency_for_view (self.xw->xv);
+@@ -143,6 +153,7 @@ - (void) webView:(WKWebView *)webView
+ - (void) webView:(WKWebView *)webView
+ didStartProvisionalNavigation:(WKNavigation *)navigation
+ {
++  self.nsxwIsLoading = YES;
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-started");
+ }
+@@ -150,6 +161,7 @@ - (void) webView:(WKWebView *)webView
+ - (void) webView:(WKWebView *)webView
+ didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation
+ {
++  self.nsxwIsLoading = YES;
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-redirected");
+ }
+@@ -166,6 +178,8 @@ - (void) webView:(WKWebView *)webView
  decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
  decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
  {
@@ -34,7 +70,24 @@ index 2292440..d57f69e 100644
    switch (navigationAction.navigationType) {
    case WKNavigationTypeLinkActivated:
      decisionHandler (WKNavigationActionPolicyAllow);
-@@ -383,6 +389,7 @@ - (void) userContentController:(WKUserContentController *)userContentController
+@@ -273,6 +287,16 @@ - (void) mouseUp:(NSEvent *)event
+ 
+ - (void) keyDown:(NSEvent *)event
+ {
++  /* While a navigation is in flight (e.g. a slow/hung proxy) the web
++     content process can't answer xwHasFocus(), which would leave this
++     keystroke un-routed.  An uncommitted page has no focused input, so
++     route to Emacs directly.  */
++  if (self.nsxwIsLoading)
++    {
++      [self.xw->xv->emacswindow keyDown:event];
++      return;
++    }
++
+   Lisp_Object var = Fintern (build_string ("isearch-mode"), Qnil);
+   Lisp_Object val = buffer_local_value (var, Fcurrent_buffer ());
+   if (!EQ (val, Qunbound) && !EQ (val, Qnil))
+@@ -383,6 +407,7 @@ - (void) userContentController:(WKUserContentController *)userContentController
  nsxwidget_webkit_goto_uri (struct xwidget *xw, const char *uri)
  {
    XwWebView *xwWebView = (XwWebView *) xw->xwWidget;
@@ -42,7 +95,7 @@ index 2292440..d57f69e 100644
    NSString *urlString = [NSString stringWithUTF8String:uri];
    NSURL *url = [NSURL URLWithString:urlString];
    NSURLRequest *urlRequest = [NSURLRequest requestWithURL:url];
-@@ -807,3 +814,86 @@ - (void) drawRect:(NSRect)dirty_rect
+@@ -807,3 +832,86 @@ - (void) drawRect:(NSRect)dirty_rect
          }
      }
  }
@@ -130,10 +183,10 @@ index 2292440..d57f69e 100644
 +  nw_release (endpoint);
 +}
 diff --git a/src/xwidget.c b/src/xwidget.c
-index eb6402d..1f3e281 100644
+index cd5aa6ae306..62769c1c368 100644
 --- a/src/xwidget.c
 +++ b/src/xwidget.c
-@@ -3979,6 +3979,12 @@ widgets; kill all xwidget-webkit buffers for changes in this setting
+@@ -4000,6 +4000,12 @@ syms_of_xwidget (void)
  to take effect.  */);
    xwidget_webkit_disable_javascript = false;
  

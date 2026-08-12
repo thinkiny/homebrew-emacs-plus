@@ -1,0 +1,178 @@
+diff --git a/lisp/xwidget.el b/lisp/xwidget.el
+index a24814c0e89..3993df76458 100644
+--- a/lisp/xwidget.el
++++ b/lisp/xwidget.el
+@@ -411,11 +411,12 @@ xwidget-log
+ (defun xwidget-event-handler ()
+   "Receive xwidget event."
+   (interactive nil xwidget-webkit-mode)
+-  (xwidget-log "stuff happened to xwidget %S" last-input-event)
++  (xwidget-log "stuff happened: %s" (nth 1 last-input-event))
+   (let*
+       ((xwidget-event-type (nth 1 last-input-event))
+        (xwidget (nth 2 last-input-event))
+-       (xwidget-callback (xwidget-get xwidget 'callback)))
++       (xwidget-callback (and (xwidget-live-p xwidget)
++                              (xwidget-get xwidget 'callback))))
+     (when xwidget-callback
+       (funcall xwidget-callback xwidget xwidget-event-type))))
+ 
+diff --git a/src/nsxwidget.m b/src/nsxwidget.m
+index bad00306f3a..8188c0cb565 100644
+--- a/src/nsxwidget.m
++++ b/src/nsxwidget.m
+@@ -140,8 +140,11 @@ - (id) initWithFrame:(CGRect)frame
+ - (void) webView:(WKWebView *)webView
+ didFinishNavigation:(WKNavigation *)navigation
+ {
++  if (self.xw == NULL)
++    return;
++
+   self.nsxwIsLoading = NO;
+-  if (self.xw && self.xw->xv)
++  if (self.xw->xv)
+     {
+       nsxwidget_refresh_transparency_for_view (self.xw->xv);
+     }
+@@ -153,6 +156,8 @@ - (void) webView:(WKWebView *)webView
+ - (void) webView:(WKWebView *)webView
+ didStartProvisionalNavigation:(WKNavigation *)navigation
+ {
++  if (self.xw == NULL)
++    return;
+   self.nsxwIsLoading = YES;
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-started");
+@@ -161,6 +166,8 @@ - (void) webView:(WKWebView *)webView
+ - (void) webView:(WKWebView *)webView
+ didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation
+ {
++  if (self.xw == NULL)
++    return;
+   self.nsxwIsLoading = YES;
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-redirected");
+@@ -170,6 +177,8 @@ - (void) webView:(WKWebView *)webView
+ - (void) webView:(WKWebView *)webView
+ didCommitNavigation:(WKNavigation *)navigation
+ {
++  if (self.xw == NULL)
++    return;
+   if (EQ (Fbuffer_live_p (self.xw->buffer), Qt))
+     store_xwidget_event_string (self.xw, "load-changed", "load-committed");
+ }
+@@ -201,10 +210,11 @@ - (void) webView:(WKWebView *)webView
+       NSString *mimetype = navigationResponse.response.MIMEType;
+       NSString *filename = navigationResponse.response.suggestedFilename;
+       decisionHandler (WKNavigationResponsePolicyCancel);
+-      store_xwidget_download_callback_event (self.xw,
+-                                             url.UTF8String,
+-                                             mimetype.UTF8String,
+-                                             filename.UTF8String);
++      if (self.xw && EQ (Fbuffer_live_p (self.xw->buffer), Qt))
++        store_xwidget_download_callback_event (self.xw,
++                                               url.UTF8String,
++                                               mimetype.UTF8String,
++                                               filename.UTF8String);
+       return;
+     }
+   decisionHandler (WKNavigationResponsePolicyAllow);
+@@ -270,12 +280,16 @@ - (void) webView:(WKWebView *)webView
+ 
+ - (void) mouseDown:(NSEvent *)event
+ {
++  if (self.xw == NULL || self.xw->xv == NULL)
++    return;
+   [self.xw->xv->emacswindow mouseDown:event];
+   [super mouseDown:event];
+ }
+ 
+ - (void) mouseUp:(NSEvent *)event
+ {
++  if (self.xw == NULL || self.xw->xv == NULL)
++    return;
+   [self.xw->xv->emacswindow mouseUp:event];
+   [super mouseUp:event];
+ }
+@@ -287,6 +301,12 @@ - (void) mouseUp:(NSEvent *)event
+ 
+ - (void) keyDown:(NSEvent *)event
+ {
++  if (self.xw == NULL || self.xw->xv == NULL)
++    {
++      [super keyDown:event];
++      return;
++    }
++
+   /* While a navigation is in flight (e.g. a slow/hung proxy) the web
+      content process can't answer xwHasFocus(), which would leave this
+      keystroke un-routed.  An uncommitted page has no focused input, so
+@@ -315,6 +335,10 @@ - (void) keyDown:(NSEvent *)event
+ 
+   [self evaluateJavaScript:@"xwHasFocus()"
+          completionHandler:^(id result, NSError *error) {
++      /* self.xw may have been cleared by nsxwidget_kill between
++         scheduling this block and running it.  */
++      if (self.xw == NULL || self.xw->xv == NULL)
++        return;
+       if (error)
+         {
+           NSLog (@"xwHasFocus: %@", error);
+@@ -372,7 +396,8 @@ - (void) userContentController:(WKUserContentController *)userContentController
+     {
+       /* Just give up focus, no relay "C-g" to emacs, another "C-g"
+          follows will be handled by emacs.  */
+-      [self.window makeFirstResponder:self.xw->xv->emacswindow];
++      if (self.xw && self.xw->xv)
++        [self.window makeFirstResponder:self.xw->xv->emacswindow];
+     }
+ }
+ 
+@@ -519,6 +544,11 @@ - (void) userContentController:(WKUserContentController *)userContentController
+   NSString *javascriptString = [NSString stringWithUTF8String:script];
+   [xwWebView evaluateJavaScript:javascriptString
+               completionHandler:^(id result, NSError *error) {
++      /* nsxwidget_kill clears xwWebView.xw before the struct is freed
++         by GC; if that has happened, xw is dangling, so drop the
++         result instead of enqueuing a callback for it.  */
++      if (xwWebView.xw != xw)
++        return;
+       if (error)
+         {
+           NSLog (@"evaluateJavaScript error : %@", error.localizedDescription);
+@@ -568,8 +598,17 @@ - (void) drawRect:(NSRect)dirty_rect
+ void
+ nsxwidget_kill (struct xwidget *xw)
+ {
+-  if (xw)
++  if (xw && xw->xwWidget)
+     {
++      /* Drop the view's raw pointer to the xwidget *before* any
++         further work: about:blank navigation and view teardown can
++         fire WebKit delegate callbacks asynchronously, and the struct
++         is freed by GC once kill_xwidget has unrooted it.  With the
++         pointer cleared, every delegate takes its null-guarded early
++         return instead of enqueuing an event that prints a freed
++         xwidget (print_object fault).  */
++      ((XwWebView *) xw->xwWidget).xw = NULL;
++
+       WKUserContentController *scriptor =
+         ((XwWebView *) xw->xwWidget).configuration.userContentController;
+       [scriptor removeAllUserScripts];
+diff --git a/src/xwidget.c b/src/xwidget.c
+index 62769c1c368..5dbe31c6010 100644
+--- a/src/xwidget.c
++++ b/src/xwidget.c
+@@ -4288,6 +4288,12 @@ kill_xwidget (struct xwidget *xw)
+ 
+   catch_child_signal ();
+ #elif defined NS_IMPL_COCOA
++  /* Nil the buffer before tearing down the view so print_object renders
++     "#<killed xwidget>" (print.c) instead of dereferencing a struct freed
++     by GC, and so `xwidget-live-p' reports nil for events already queued
++     when the widget died.  Mirrors the GTK branch above.  */
++  xw->buffer = Qnil;
++  Fremhash (make_fixnum (xw->xwidget_id), id_to_xwidget_map);
+   nsxwidget_kill (xw);
+ #endif
+ }
