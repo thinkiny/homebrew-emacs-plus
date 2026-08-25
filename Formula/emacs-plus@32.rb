@@ -90,6 +90,7 @@ class EmacsPlusAT32 < EmacsBase
 
   local_patch "system-appearance", sha: "53283503db5ed2887e9d733baaaf80f2c810e668e782e988bda5855a0b1ebeb4"
   local_patch "round-undecorated-frame", sha: "c9430a1ead81e313b3d2877ff6f8044fb29441eecc7cc42000515d7c8ec6380f"
+  local_patch "fix-ns-scroll-crash", sha: "3250bf6e45cdcb3f4cbc0ace2d2d3200464331cbfb34613980554e31ec45fe6c"
   if build.with? "frame-transparency"
     local_patch "frame-transparency", sha: "44b2a086d64f0a924b6adae529c82d4be32c35a80aa7275b236851982cf2189a"
   else
