@@ -137,6 +137,8 @@ class EmacsPlusAT32 < EmacsBase
 
     ENV.append "LDFLAGS", "-L#{gcc_lib}"
     ENV.append "LDFLAGS", "-Wl,-rpath,#{gcc_lib}"
+    # libgccjit's JIT linker needs GCC runtime libraries during configure and AOT compilation.
+    ENV.prepend_path "LIBRARY_PATH", build_library_path
 
     args <<
       if build.with? "dbus"
