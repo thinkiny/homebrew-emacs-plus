@@ -1,5 +1,5 @@
 diff --git a/src/frame.c b/src/frame.c
-index 815a06c5ea3..d6972134fbc 100644
+index c28f23ebaa9..3ef73f1b5b7 100644
 --- a/src/frame.c
 +++ b/src/frame.c
 @@ -1210,6 +1210,7 @@ make_frame (bool mini_p)
@@ -10,15 +10,23 @@ index 815a06c5ea3..d6972134fbc 100644
  #endif
  #endif
    f->select_mini_window_flag = false;
-@@ -4885,6 +4886,7 @@ DEFUN ("frame-scale-factor", Fframe_scale_factor, Sframe_scale_factor,
+@@ -4161,6 +4162,7 @@ frame_unspecified_color (struct frame *f, Lisp_Object unspec)
  #ifdef NS_IMPL_COCOA
    {"ns-appearance",		SYMBOL_INDEX (Qns_appearance)},
    {"ns-transparent-titlebar",	SYMBOL_INDEX (Qns_transparent_titlebar)},
 +  {"ns-background-blur",	SYMBOL_INDEX (Qns_background_blur)},
  #endif
- };
  
-@@ -7322,6 +7324,7 @@ syms_of_frame (void)
+   {"display",			SYMBOL_INDEX (Qdisplay)},
+@@ -4239,6 +4241,7 @@ frame_unspecified_color (struct frame *f, Lisp_Object unspec)
+ #ifdef NS_IMPL_COCOA
+   NS_APPEARANCE,
+   NS_TRANSPARENT_TITLEBAR,
++  NS_BACKGROUND_BLUR,
+ #endif
+   DISPLAY,
+   LEFT,
+@@ -7717,6 +7720,7 @@ syms_of_frame (void)
  #ifdef NS_IMPL_COCOA
    DEFSYM (Qns_appearance, "ns-appearance");
    DEFSYM (Qns_transparent_titlebar, "ns-transparent-titlebar");
@@ -76,7 +84,7 @@ index a24ff046735..a469d9ff0ca 100644
          {
            if (face && (NS_FACE_BACKGROUND (face)
 diff --git a/src/nsfns.m b/src/nsfns.m
-index 384936f33a0..d2c51d397ef 100644
+index 8bfe7738fe7..3418ae6cf98 100644
 --- a/src/nsfns.m
 +++ b/src/nsfns.m
 @@ -295,7 +295,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
@@ -191,9 +199,9 @@ index 384936f33a0..d2c51d397ef 100644
 +  ns_set_background_blur,
 +  NULL,
  #endif
- };
- 
-@@ -1204,6 +1257,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   NULL,
+   NULL,
+@@ -1216,6 +1269,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
    Lisp_Object display;
    struct ns_display_info *dpyinfo = NULL;
    Lisp_Object parent, parent_frame;
@@ -201,7 +209,7 @@ index 384936f33a0..d2c51d397ef 100644
    struct kboard *kb;
    static int desc_ctr = 1;
    NSWindow *main_window = [NSApp mainWindow];
-@@ -1422,6 +1476,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+@@ -1434,6 +1488,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
    FRAME_NS_TRANSPARENT_TITLEBAR (f) = !NILP (tem) && !EQ (tem, Qunbound);
    store_frame_param (f, Qns_transparent_titlebar,
                       FRAME_NS_TRANSPARENT_TITLEBAR (f) ? Qt : Qnil);
@@ -211,7 +219,7 @@ index 384936f33a0..d2c51d397ef 100644
  #endif
  
    parent_frame = gui_display_get_arg (dpyinfo, parms, Qparent_frame, NULL, NULL,
-@@ -1436,6 +1493,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+@@ -1448,6 +1505,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
  
    fset_parent_frame (f, parent_frame);
    store_frame_param (f, Qparent_frame, parent_frame);
@@ -221,7 +229,7 @@ index 384936f33a0..d2c51d397ef 100644
  
    gui_default_parameter (f, parms, Qz_group, Qnil, NULL, NULL, RES_TYPE_SYMBOL);
    gui_default_parameter (f, parms, Qno_focus_on_map, Qnil,
-@@ -1539,7 +1599,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+@@ -1551,7 +1611,7 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
                           RES_TYPE_NUMBER);
    gui_default_parameter (f, parms, Qalpha, Qnil,
                           "alpha", "Alpha", RES_TYPE_NUMBER);
@@ -266,7 +274,7 @@ index efcf981c3ba..08e93282c92 100644
  extern int ns_select (int nfds, fd_set *readfds, fd_set *writefds,
  		      fd_set *exceptfds, struct timespec *timeout,
 diff --git a/src/nsterm.m b/src/nsterm.m
-index 0c39f9ac53b..1e09854f3fc 100644
+index 0c39f9ac53b..6f8d95fc955 100644
 --- a/src/nsterm.m
 +++ b/src/nsterm.m
 @@ -31,6 +31,7 @@ Updated by Christian Limpach (chris@nice.ch)

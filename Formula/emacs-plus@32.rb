@@ -89,9 +89,9 @@ class EmacsPlusAT32 < EmacsBase
   #
 
   local_patch "system-appearance", sha: "53283503db5ed2887e9d733baaaf80f2c810e668e782e988bda5855a0b1ebeb4"
-  local_patch "round-undecorated-frame", sha: "c9430a1ead81e313b3d2877ff6f8044fb29441eecc7cc42000515d7c8ec6380f"
+  local_patch "round-undecorated-frame", sha: "6daed6c192f4fe32c104ff754a7fd461a75094ca95fb377e7bd09450af67fc0e"
   if build.with? "frame-transparency"
-    local_patch "frame-transparency", sha: "c47966a1fa71c8f0c3c853b14a9125bc129385d40aa0d89ae4ac8269353a2045"
+    local_patch "frame-transparency", sha: "37befafebbbb058a1e4b61be6bd4018ab266fd00e47b656e4833075934178f75"
   else
     local_patch "alpha-background", sha: "f47e5bb264a0597f53517e1b83b10a67d49e48c5e23c63af5f5c46768962e87c"
     local_patch "glass", sha: "1116513b2b5cc644a4e711690b0443ea5100d29d965a2654e66fa469fd0af66e"
